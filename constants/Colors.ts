@@ -24,3 +24,15 @@ export const Colors = {
     tabIconSelected: tintColorDark,
   },
 };
+
+export const colors = {
+  primary: '#7B2CBF', // More luxurious purple
+  primaryDark: '#5A189A', // For pressed states
+  primaryLight: '#F3EBFF',
+  secondary: '#F8F4FB',
+  text: '#1A1A1A',
+  textSecondary: '#666666',
+  white: '#FFFFFF',
+  error: '#FF3B30',
+  success: '#34C759',
+};
