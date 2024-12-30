@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
 import { useRouter } from 'expo-router';
-import { eventService, Event } from '@/services/eventService';
-import { Link, MaterialCommunityIcons } from 'expo-router';
+import eventService, { Event } from '@/services/eventService';
+import { Link } from 'expo-router';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 const colors = {
-  primary: '#5D3FD3', // More posh purple
+  primary: '#5D3FD3', // Purple
   primaryLight: '#F4F0FF',
   secondary: '#F8F4FB',
   text: '#1A1A1A',
@@ -13,7 +14,7 @@ const colors = {
   white: '#FFFFFF',
 };
 
-export default function YaaroEventsScreen() {
+export default function Index() {
   const router = useRouter();
   const [weekendEvents, setWeekendEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,11 +26,14 @@ export default function YaaroEventsScreen() {
 
   const loadEvents = async () => {
     try {
-      const events = await eventService.getEvents({ type: 'weekend', status: 'active' });
-      setWeekendEvents(events);
+      setLoading(true);
+      setError(null);
+      const events = await eventService.getEvents({ type: 'weekend', status: 'open' });
+      setWeekendEvents(Array.isArray(events) ? events : []);
     } catch (err) {
       setError('Failed to load events');
       console.error(err);
+      setWeekendEvents([]);
     } finally {
       setLoading(false);
     }
@@ -40,7 +44,7 @@ export default function YaaroEventsScreen() {
   };
 
   const navigateToSpontaneous = () => {
-    router.push('/(tabs)/discover');
+    router.push('/(tabs)/explore');
   };
 
   const handleJoin = async (eventId: string) => {
@@ -54,11 +58,11 @@ export default function YaaroEventsScreen() {
   };
 
   const handleYaaroHangouts = () => {
-    router.push('/events');
+    router.push('/(tabs)/explore');
   };
 
   const handleSpontaneousEvents = () => {
-    router.push('/spontaneous');
+    router.push('/(tabs)/explore');
   };
 
   return (
@@ -127,32 +131,43 @@ export default function YaaroEventsScreen() {
             style={styles.eventScroll}
             contentContainerStyle={styles.eventScrollContent}
           >
-            {weekendEvents.map((event) => (
-              <TouchableOpacity 
-                key={event._id} 
-                style={styles.eventCard}
-                activeOpacity={0.9}
-              >
-                <View style={styles.eventImagePlaceholder}>
-                  {event.image ? (
-                    <Image source={{ uri: event.image }} style={styles.eventImage} />
-                  ) : (
-                    <Text style={styles.eventImageText}>🎉</Text>
-                  )}
-                </View>
-                <Text style={styles.eventTitle}>{event.title}</Text>
-                <Text style={styles.eventLocation}>{event.location.name}</Text>
+            {weekendEvents.map((event) => {
+              const attendees = event.attendees || [];
+              return (
                 <TouchableOpacity 
-                  style={styles.joinButton}
-                  onPress={() => handleJoin(event._id)}
+                  key={event._id} 
+                  style={styles.eventCard}
                   activeOpacity={0.9}
                 >
-                  <Text style={styles.joinButtonText}>
-                    Join {event.currentAttendees.length}/{event.maxAttendees} people
-                  </Text>
+                  <View style={styles.eventImagePlaceholder}>
+                    {event.image ? (
+                      <Image source={{ uri: event.image }} style={styles.eventImage} />
+                    ) : (
+                      <Text style={styles.eventImageText}>🎉</Text>
+                    )}
+                  </View>
+                  <Text style={styles.eventTitle}>{event.title}</Text>
+                  <Text style={styles.eventLocation}>{event.location.name}</Text>
+                  <TouchableOpacity 
+                    style={[
+                      styles.joinButton,
+                      attendees.length >= event.maxParticipants && styles.joinButtonDisabled
+                    ]}
+                    onPress={() => handleJoin(event._id)}
+                    disabled={attendees.length >= event.maxParticipants}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={[
+                      styles.joinButtonText,
+                      attendees.length >= event.maxParticipants && styles.joinButtonTextDisabled
+                    ]}>
+                      {attendees.length >= event.maxParticipants ? 'FULL' : 
+                        `Join ${attendees.length}/${event.maxParticipants} people`}
+                    </Text>
+                  </TouchableOpacity>
                 </TouchableOpacity>
-              </TouchableOpacity>
-            ))}
+              );
+            })}
           </ScrollView>
         )}
       </View>
@@ -336,16 +351,22 @@ const styles = StyleSheet.create({
   },
   joinButton: {
     backgroundColor: colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 24,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 20,
-    marginBottom: 16,
-    marginHorizontal: 16,
+    marginTop: 8,
+  },
+  joinButtonDisabled: {
+    backgroundColor: colors.textSecondary,
   },
   joinButtonText: {
     color: colors.white,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
+    textAlign: 'center',
+  },
+  joinButtonTextDisabled: {
+    color: colors.white,
   },
   loadingText: {
     color: colors.textSecondary,

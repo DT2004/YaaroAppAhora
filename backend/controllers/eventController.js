@@ -1,44 +1,28 @@
 const Event = require('../models/Event');
-const Message = require('../models/Message');
-const io = require('../socket');
 
-// Sample event data for testing
-const sampleEvent = {
-  title: 'Dinner at Bandra Mall & Arcade',
-  description: 'Join us for a fun dinner at Bandra Mall followed by arcade games!',
-  type: 'hangout',
-  category: 'dinner',
-  location: {
-    name: 'Bandra Mall',
-    coordinates: {
-      type: 'Point',
-      coordinates: [72.8347, 19.0759] // Example coordinates
-    }
-  },
-  date: '2024-12-30',
-  time: '19:00',
-  maxAttendees: 20,
-  currentAttendees: [],
-  creator: 'user_id_here', // Replace with a valid user ID
-};
-
-// Get all events with filters
+// Get all events
 exports.getEvents = async (req, res) => {
   try {
-    const events = await Event.find().sort('-createdAt');
-    res.json(events);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
+    const { type, status = 'open', id } = req.query;
+    let query = {};
+    
+    if (id) {
+      query._id = id;
+    } else {
+      if (status) query.status = status;
+      if (type) query.type = type;
+    }
 
-exports.getEventsByType = async (req, res) => {
-  try {
-    const { type } = req.params;
-    const events = await Event.find({ type }).sort('-createdAt');
+    const events = await Event.find(query)
+      .select('-__v')
+      .populate('attendees', 'name')
+      .sort('-date')
+      .lean();
+
     res.json(events);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching events:', error);
+    res.status(500).json({ error: 'Failed to fetch events' });
   }
 };
 
@@ -47,71 +31,90 @@ exports.getNearbyEvents = async (req, res) => {
   try {
     const { longitude, latitude, maxDistance = 10000 } = req.query;
 
+    if (!longitude || !latitude) {
+      return res.status(400).json({ error: 'Location coordinates are required' });
+    }
+
     const events = await Event.find({
+      status: 'open',
       'location.coordinates': {
         $near: {
           $geometry: {
             type: 'Point',
-            coordinates: [parseFloat(longitude), parseFloat(latitude)],
+            coordinates: [parseFloat(longitude), parseFloat(latitude)]
           },
-          $maxDistance: parseInt(maxDistance),
-        },
-      },
+          $maxDistance: parseInt(maxDistance)
+        }
+      }
     })
-    .populate('creator', 'name avatar')
-    .populate('currentAttendees', 'name avatar');
+    .select('-__v')
+    .populate('attendees', 'name')
+    .lean();
 
     res.json(events);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching nearby events:', error);
+    res.status(500).json({ error: 'Failed to fetch nearby events' });
   }
 };
 
-// Create new event
+// Create a new event
 exports.createEvent = async (req, res) => {
   try {
-    const event = new Event(req.body);
+    const eventData = req.body;
+    const event = new Event(eventData);
     await event.save();
     res.status(201).json(event);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error creating event:', error);
+    res.status(500).json({ error: 'Failed to create event' });
   }
 };
 
-// Join event
+// Join an event
 exports.joinEvent = async (req, res) => {
   try {
     const { eventId } = req.params;
+    // For testing, use a mock user ID since we don't have auth yet
+    const userId = "user123";
+
     const event = await Event.findById(eventId);
-
     if (!event) {
-      return res.status(404).json({ message: 'Event not found' });
+      return res.status(404).json({ error: 'Event not found' });
     }
 
-    if (event.isFull()) {
-      return res.status(400).json({ message: 'Event is full' });
+    if (event.status !== 'open') {
+      return res.status(400).json({ error: 'Event is not open for joining' });
     }
 
-    await event.addAttendee(req.user._id);
+    if (event.attendees.length >= event.maxParticipants) {
+      event.status = 'full';
+      await event.save();
+      return res.status(400).json({ error: 'Event is full' });
+    }
 
-    // Create join message
-    const message = await Message.create({
-      eventId,
-      userId: req.user._id,
-      userName: req.user.name,
-      type: 'join',
-      message: `${req.user.name} joined the event`,
-    });
+    // Check if user already joined
+    const alreadyJoined = event.attendees.some(
+      attendee => attendee._id.toString() === userId || attendee._id === userId
+    );
+    
+    if (alreadyJoined) {
+      return res.status(400).json({ error: 'Already joined this event' });
+    }
 
-    // Emit join event to all clients in the event room
-    io.to(`event_${eventId}`).emit('user_joined', {
-      user: req.user,
-      message,
-    });
+    // Add user to attendees
+    event.attendees.push({ _id: userId, name: 'Test User' });
+    
+    // Check if event is now full
+    if (event.attendees.length === event.maxParticipants) {
+      event.status = 'full';
+    }
 
+    await event.save();
     res.json(event);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error joining event:', error);
+    res.status(500).json({ error: 'Failed to join event' });
   }
 };
 
@@ -119,12 +122,16 @@ exports.joinEvent = async (req, res) => {
 exports.getEventMessages = async (req, res) => {
   try {
     const { eventId } = req.params;
-    const messages = await Message.find({ eventId })
-      .sort('-createdAt')
-      .limit(50);
-    res.json(messages.reverse());
+    const event = await Event.findById(eventId).populate('groupChat.messages');
+    
+    if (!event || !event.groupChat) {
+      return res.status(404).json({ error: 'Chat not found' });
+    }
+    
+    res.json(event.groupChat.messages);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Error fetching messages:', error);
+    res.status(500).json({ error: 'Failed to fetch messages' });
   }
 };
 
@@ -132,30 +139,72 @@ exports.getEventMessages = async (req, res) => {
 exports.sendMessage = async (req, res) => {
   try {
     const { eventId } = req.params;
-    const { userId, userName, message } = req.body;
-    
-    const newMessage = await Message.create({
-      eventId,
+    const { message } = req.body;
+    // For testing, use a mock user ID since we don't have auth yet
+    const userId = "user123";
+
+    const event = await Event.findById(eventId);
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+
+    if (!event.groupChat) {
+      event.groupChat = {
+        messages: [],
+        participants: []
+      };
+    }
+
+    const newMessage = {
       userId,
-      userName,
       message,
-    });
+      timestamp: new Date().toISOString()
+    };
 
-    // Emit message to all clients in the event room
-    io.to(`event_${eventId}`).emit('new_message', newMessage);
+    event.groupChat.messages.push(newMessage);
+    await event.save();
 
-    res.status(201).json(newMessage);
+    res.json(newMessage);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error sending message:', error);
+    res.status(500).json({ error: 'Failed to send message' });
   }
 };
 
-// Add sample event to the database (for testing purposes)
-exports.createSampleEvent = async (req, res) => {
+// Create sample events for testing
+exports.createSampleEvents = async () => {
+  const sampleEvents = [
+    {
+      title: 'Weekend Movie Night',
+      description: 'Join us for a fun movie night!',
+      type: 'movie',
+      location: {
+        name: 'PVR Cinemas, Juhu',
+        coordinates: { type: 'Point', coordinates: [72.8277, 19.0760] }
+      },
+      date: new Date(Date.now() + 86400000), // Tomorrow
+      time: '18:30',
+      maxParticipants: 4
+    },
+    {
+      title: 'Cricket at Oval Maidan',
+      description: 'Sunday morning cricket session',
+      type: 'sports',
+      location: {
+        name: 'Oval Maidan, Mumbai',
+        coordinates: { type: 'Point', coordinates: [72.8259, 18.9321] }
+      },
+      date: new Date(Date.now() + 172800000), // Day after tomorrow
+      time: '07:00',
+      maxParticipants: 6
+    }
+  ];
+
   try {
-    const event = await Event.create(sampleEvent);
-    res.status(201).json(event);
+    await Event.deleteMany({}); // Clear existing events
+    await Event.insertMany(sampleEvents);
+    console.log('Sample events created successfully');
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error creating sample events:', error);
   }
 };

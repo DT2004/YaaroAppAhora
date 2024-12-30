@@ -1,6 +1,5 @@
 const User = require('../models/User'); // Importing User model
 const bcrypt = require('bcrypt'); // Importing bcrypt for password hashing
-const jwt = require('jsonwebtoken'); // Importing jsonwebtoken for JWT handling
 
 // Register a new user
 exports.registerUser = async (req, res) => {
@@ -9,7 +8,7 @@ exports.registerUser = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10); // Hashing the password
     const newUser = new User({ name, email, password: hashedPassword }); // Creating a new user
     await newUser.save(); // Saving the user to the database
-    res.status(201).json({ message: 'User registered successfully' }); // Success response
+    res.status(201).json({ message: 'User registered successfully', userId: newUser._id }); // Success response
   } catch (error) {
     res.status(400).json({ message: error.message }); // Error response
   }
@@ -25,8 +24,7 @@ exports.loginUser = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password); // Comparing passwords
     if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' }); // Invalid credentials
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' }); // Generating JWT
-    res.json({ token, userId: user._id }); // Sending token and user ID
+    res.json({ userId: user._id }); // Sending user ID
   } catch (error) {
     res.status(500).json({ message: error.message }); // Error response
   }

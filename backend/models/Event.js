@@ -1,95 +1,109 @@
 const mongoose = require('mongoose');
 
+const messageSchema = new mongoose.Schema({
+  userId: String,
+  message: String,
+  timestamp: String
+});
+
+const groupChatSchema = new mongoose.Schema({
+  messages: [messageSchema],
+  participants: [{ type: String }]
+});
+
 const eventSchema = new mongoose.Schema({
   title: {
     type: String,
     required: true,
+    trim: true
   },
   description: {
     type: String,
     required: true,
+    trim: true
   },
   type: {
     type: String,
-    enum: ['hangout', 'spontaneous', 'weekend'],
     required: true,
-  },
-  category: {
-    type: String,
-    required: true,
+    enum: ['food', 'sports', 'music', 'social', 'study', 'other']
   },
   location: {
-    name: String,
-    coordinates: {
-      type: { type: String, default: 'Point' },
-      coordinates: [Number], // [longitude, latitude]
+    name: {
+      type: String,
+      required: true,
+      trim: true
     },
+    coordinates: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+      },
+      coordinates: {
+        type: [Number],
+        required: true,
+        validate: {
+          validator: function(v) {
+            return v.length === 2 && 
+                   v[0] >= -180 && v[0] <= 180 && 
+                   v[1] >= -90 && v[1] <= 90;
+          },
+          message: 'Invalid coordinates'
+        }
+      }
+    }
   },
   date: {
     type: Date,
-    required: true,
+    required: true
   },
   time: {
     type: String,
     required: true,
+    validate: {
+      validator: function(v) {
+        return /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/.test(v);
+      },
+      message: 'Time must be in HH:MM format'
+    }
   },
-  maxAttendees: {
+  maxParticipants: {
     type: Number,
     required: true,
+    min: 2,
+    max: 50
   },
-  currentAttendees: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+  attendees: [{
+    _id: String,
+    name: String
   }],
-  creator: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+  budget: {
+    min: {
+      type: Number,
+      required: true,
+      min: 0
+    },
+    max: {
+      type: Number,
+      required: true
+    }
   },
   image: {
     type: String,
-    default: null,
+    required: false
   },
   status: {
     type: String,
-    enum: ['active', 'full', 'cancelled', 'completed'],
-    default: 'active',
+    required: true,
+    enum: ['open', 'full', 'cancelled', 'completed'],
+    default: 'open'
   },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
+  groupChat: groupChatSchema
+}, {
+  timestamps: true
 });
 
-// Index for location-based queries
+// Create 2dsphere index for location-based queries
 eventSchema.index({ 'location.coordinates': '2dsphere' });
 
-// Virtual for number of attendees
-eventSchema.virtual('attendeeCount').get(function() {
-  return this.currentAttendees.length;
-});
-
-// Virtual for spots left
-eventSchema.virtual('spotsLeft').get(function() {
-  return this.maxAttendees - this.currentAttendees.length;
-});
-
-// Method to check if event is full
-eventSchema.methods.isFull = function() {
-  return this.currentAttendees.length >= this.maxAttendees;
-};
-
-// Method to add attendee
-eventSchema.methods.addAttendee = async function(userId) {
-  if (this.isFull()) {
-    throw new Error('Event is full');
-  }
-  if (this.currentAttendees.includes(userId)) {
-    throw new Error('User already joined');
-  }
-  this.currentAttendees.push(userId);
-  await this.save();
-};
-
-const Event = mongoose.model('Event', eventSchema);
-module.exports = Event;
+module.exports = mongoose.model('Event', eventSchema);

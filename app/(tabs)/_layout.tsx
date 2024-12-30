@@ -33,11 +33,20 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="discover"
+        name="explore"
         options={{
-          title: 'Spontaneous',
+          title: 'Explore',
           tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="lightning-bolt" size={size} color={color} />
+            <MaterialCommunityIcons name="compass" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="people"
+        options={{
+          title: 'People',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="account-group" size={size} color={color} />
           ),
         }}
       />

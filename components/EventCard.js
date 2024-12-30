@@ -1,67 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import SpontaneousReply from './SpontaneousReply';
-import { eventService } from '../services/eventService';
 import { colors } from '../constants/Colors';
 
+const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1511882150382-421056c89033?q=80&w=1000&auto=format&fit=crop';
+
 export default function EventCard({ event, onJoin }) {
-  const [replies, setReplies] = useState([]);
-  const [showReplies, setShowReplies] = useState(false);
-
-  useEffect(() => {
-    if (event.type === 'spontaneous') {
-      loadReplies();
-      
-      // Subscribe to real-time updates
-      const unsubscribe = eventService.subscribeToEvent(event._id, (newReply) => {
-        setReplies(currentReplies => [...currentReplies, newReply]);
-      });
-
-      return () => {
-        unsubscribe();
-      };
-    }
-  }, [event._id]);
-
-  const loadReplies = async () => {
-    try {
-      const eventReplies = await eventService.getEventReplies(event._id);
-      setReplies(eventReplies);
-    } catch (error) {
-      console.error('Failed to load replies:', error);
-    }
-  };
-
-  const handleReply = async (eventId, message) => {
-    try {
-      await eventService.replyToEvent(eventId, message);
-      // No need to manually update replies as we're subscribed to real-time updates
-    } catch (error) {
-      console.error('Failed to send reply:', error);
-    }
-  };
-
   return (
     <View style={styles.eventCard}>
       <Image 
-        source={{ uri: event.image || 'https://placeholder.com/400x200' }}
+        source={{ uri: event.image || DEFAULT_IMAGE }}
         style={styles.eventImage}
+        onError={(e) => {
+          console.log('Image load error:', e.nativeEvent.error);
+          // Image will automatically use defaultSource if loading fails
+        }}
+        defaultSource={require('../assets/placeholder.png')}
       />
       <View style={styles.eventContent}>
         <Text style={styles.eventTitle}>{event.title}</Text>
+        <Text style={styles.eventDescription}>{event.description}</Text>
         <Text style={styles.eventTime}>{event.time}, {new Date(event.date).toLocaleDateString()}</Text>
         
         <View style={styles.attendeesRow}>
           <View style={styles.avatarGroup}>
-            {event.currentAttendees.slice(0, 3).map((attendee, index) => (
+            {(event.attendees || []).slice(0, 3).map((attendee, index) => (
               <View key={index} style={[styles.avatar, { marginLeft: index * -10 }]}>
                 <Text>👤</Text>
               </View>
             ))}
           </View>
           <Text style={styles.attendeesText}>
-            You & {event.currentAttendees.length} others
+            {event.attendees?.length || 0} joined
           </Text>
         </View>
 
@@ -69,59 +39,22 @@ export default function EventCard({ event, onJoin }) {
           <View style={styles.seatsContainer}>
             <MaterialCommunityIcons name="account-group" size={20} color={colors.textSecondary} />
             <Text style={styles.seatsText}>
-              {event.currentAttendees.length}/{event.maxAttendees} seats left
+              {event.attendees?.length || 0}/{event.maxParticipants} seats
             </Text>
           </View>
 
-          <View style={styles.buttonGroup}>
-            {event.type === 'spontaneous' && (
-              <SpontaneousReply eventId={event._id} onReply={handleReply} />
-            )}
-            <TouchableOpacity
-              style={styles.joinButton}
-              onPress={() => onJoin(event._id)}
-            >
-              <Text style={styles.joinButtonText}>JOIN</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.joinButton}
+            onPress={() => onJoin(event._id)}
+          >
+            <Text style={styles.joinButtonText}>JOIN</Text>
+          </TouchableOpacity>
         </View>
 
-        {event.type === 'spontaneous' && replies.length > 0 && (
-          <View style={styles.repliesSection}>
-            <TouchableOpacity
-              style={styles.repliesHeader}
-              onPress={() => setShowReplies(!showReplies)}
-            >
-              <Text style={styles.repliesTitle}>
-                Replies ({replies.length})
-              </Text>
-              <MaterialCommunityIcons
-                name={showReplies ? 'chevron-up' : 'chevron-down'}
-                size={24}
-                color={colors.primary}
-              />
-            </TouchableOpacity>
-
-            {showReplies && (
-              <View style={styles.repliesList}>
-                {replies.map((reply) => (
-                  <View key={reply._id} style={styles.replyItem}>
-                    <View style={styles.replyAvatar}>
-                      <Text>👤</Text>
-                    </View>
-                    <View style={styles.replyContent}>
-                      <Text style={styles.replyUserName}>{reply.userName}</Text>
-                      <Text style={styles.replyMessage}>{reply.message}</Text>
-                      <Text style={styles.replyTime}>
-                        {new Date(reply.createdAt).toLocaleTimeString()}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
+        <View style={styles.locationBudget}>
+          <Text style={styles.locationText}>📍 {event.location.name}</Text>
+          <Text style={styles.budgetText}>💰 ₹{event.budget.min} - ₹{event.budget.max}</Text>
+        </View>
       </View>
     </View>
   );
@@ -131,18 +64,20 @@ const styles = StyleSheet.create({
   eventCard: {
     backgroundColor: colors.white,
     borderRadius: 16,
-    marginBottom: 16,
+    marginHorizontal: 16,
+    marginVertical: 8,
     overflow: 'hidden',
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowRadius: 4,
   },
   eventImage: {
     width: '100%',
     height: 200,
-    backgroundColor: colors.primaryLight,
+    resizeMode: 'cover',
+    backgroundColor: colors.gray200,
   },
   eventContent: {
     padding: 16,
@@ -150,8 +85,13 @@ const styles = StyleSheet.create({
   eventTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: colors.text,
+    color: colors.textPrimary,
     marginBottom: 4,
+  },
+  eventDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 8,
   },
   eventTime: {
     fontSize: 14,
@@ -168,13 +108,13 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.primaryLight,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.gray200,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: colors.white,
   },
   attendeesText: {
@@ -183,85 +123,40 @@ const styles = StyleSheet.create({
   },
   actionsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   seatsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   seatsText: {
-    marginLeft: 8,
+    marginLeft: 4,
     fontSize: 14,
     color: colors.textSecondary,
   },
-  buttonGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   joinButton: {
     backgroundColor: colors.primary,
-    paddingVertical: 8,
     paddingHorizontal: 24,
+    paddingVertical: 8,
     borderRadius: 20,
   },
   joinButtonText: {
     color: colors.white,
-    fontSize: 14,
     fontWeight: '600',
   },
-  repliesSection: {
-    marginTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: colors.primaryLight,
-    paddingTop: 16,
-  },
-  repliesHeader: {
+  locationBudget: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  repliesTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  repliesList: {
-    marginTop: 12,
-  },
-  replyItem: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  replyAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.primaryLight,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
   },
-  replyContent: {
-    flex: 1,
-    backgroundColor: colors.primaryLight,
-    borderRadius: 12,
-    padding: 8,
-  },
-  replyUserName: {
+  locationText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 2,
-  },
-  replyMessage: {
-    fontSize: 14,
-    color: colors.text,
-  },
-  replyTime: {
-    fontSize: 12,
     color: colors.textSecondary,
-    marginTop: 4,
+  },
+  budgetText: {
+    fontSize: 14,
+    color: colors.textSecondary,
   },
 });
